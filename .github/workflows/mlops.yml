@@ -44,15 +44,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Authenticate to Cloud Storage
-        run: |
-          echo '${{ secrets.CLOUD_CREDENTIALS }}' > sa-key.json
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/sa-key.json" >> $GITHUB_ENV
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Pull data with DVC
-        run: |
-          dvc remote modify myremote credentialpath sa-key.json
-          dvc pull
+        run: dvc pull
 
       - name: Train model
         run: |
@@ -65,28 +65,17 @@ jobs:
           acc=$(python -c "import json; print(json.load(open('outputs/metrics.json'))['accuracy'])")
           echo "accuracy=$acc" >> $GITHUB_OUTPUT
 
-      - name: Upload model to Cloud Storage
+      - name: Upload model to S3
         run: |
-          python - <<'EOF'
-          import os
-          from google.cloud import storage
-          
-          bucket_name = "${{ secrets.CLOUD_BUCKET }}"
-          source_file = "models/model.pkl"
-          destination_blob = "models/latest/model.pkl"
-          
-          client = storage.Client()
-          bucket = client.bucket(bucket_name)
-          blob = bucket.blob(destination_blob)
-          blob.upload_from_filename(source_file)
-          print(f"File {source_file} uploaded to {destination_blob}.")
-          EOF
+          aws s3 cp models/model.pkl s3://${{ secrets.S3_BUCKET }}/models/latest/model.pkl
 
       - name: Save metrics as artifact
         uses: actions/upload-artifact@v4
         with:
           name: metrics
           path: outputs/metrics.json
+
+
 
   eval:
     name: Eval
